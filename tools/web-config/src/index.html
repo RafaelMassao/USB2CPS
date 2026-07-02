@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joypad Config</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Joypad Config</h1>
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Disconnected</span>
+                <button id="connectBtn">Connect</button>
+            </div>
+        </header>
+
+        <!-- Connect Prompt -->
+        <div id="connectPrompt" class="connect-prompt">
+            <p>Connect your Joypad device to configure it.</p>
+            <button id="connectBtn2">Connect Device</button>
+            <p style="margin-top: 20px; font-size: 12px;">
+                Requires Chrome, Edge, or Opera with Web Serial API support.
+            </p>
+        </div>
+
+        <!-- Main Content (hidden until connected) -->
+        <div id="mainContent" class="hidden">
+            <!-- Device Info -->
+            <div class="card">
+                <h2>Device</h2>
+                <div class="card-content">
+                    <div class="device-info">
+                        <div class="row">
+                            <span class="label">App</span>
+                            <span class="value" id="deviceApp">-</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Version</span>
+                            <span class="value" id="deviceVersion">-</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Board</span>
+                            <span class="value" id="deviceBoard">-</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Serial</span>
+                            <span class="value" id="deviceSerial">-</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Commit</span>
+                            <span class="value" id="deviceCommit">-</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Build</span>
+                            <span class="value" id="deviceBuild">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- USB Output Mode -->
+            <div class="card">
+                <h2>USB Output Mode</h2>
+                <div class="card-content">
+                    <div class="row">
+                        <span class="label">Current Mode</span>
+                        <select id="modeSelect">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted);">
+                        Changing mode will reboot the device.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Profiles (unified built-in + custom) -->
+            <div class="card" id="customProfilesCard">
+                <h2>Profiles</h2>
+                <div class="card-content">
+                    <div class="row">
+                        <span class="label">Manage Profiles</span>
+                        <button id="newProfileBtn" class="secondary">+ New Profile</button>
+                    </div>
+                    <div id="profileList" class="profile-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Editor Modal -->
+            <div id="profileEditorModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="profileEditorTitle">Edit Profile</h3>
+                        <button class="modal-close" id="closeEditorBtn">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Profile Name</label>
+                            <input type="text" id="profileNameInput" maxlength="11" placeholder="Profile name">
+                        </div>
+                        <div class="form-group">
+                            <label>Button Mapping</label>
+                            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+                                For each input button, select what output button it should produce.
+                            </p>
+                            <div id="buttonMapContainer" class="button-map-grid">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Stick Sensitivity</label>
+                            <div class="sensitivity-row">
+                                <span>Left Stick</span>
+                                <input type="range" id="leftStickSens" min="0" max="200" value="100">
+                                <span id="leftStickSensValue">100%</span>
+                            </div>
+                            <div class="sensitivity-row">
+                                <span>Right Stick</span>
+                                <input type="range" id="rightStickSens" min="0" max="200" value="100">
+                                <span id="rightStickSensValue">100%</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>SOCD Cleaning</label>
+                            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+                                How to handle simultaneous opposite cardinal directions (e.g. Left+Right).
+                            </p>
+                            <select id="socdModeSelect" style="width: 100%;">
+                                <option value="0">Passthrough (no cleaning)</option>
+                                <option value="1">Neutral (cancel both directions)</option>
+                                <option value="2">Up Priority (U+D=U, L+R=neutral) — Hitbox style</option>
+                                <option value="3">Last Win (last input takes priority)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Options</label>
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="flagSwapSticks">
+                                <label for="flagSwapSticks">Swap Left/Right Sticks</label>
+                            </div>
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="flagInvertLY">
+                                <label for="flagInvertLY">Invert Left Y Axis</label>
+                            </div>
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="flagInvertRY">
+                                <label for="flagInvertRY">Invert Right Y Axis</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="deleteProfileBtn" class="secondary danger">Delete</button>
+                        <div style="flex: 1;"></div>
+                        <button id="cancelEditorBtn" class="secondary">Cancel</button>
+                        <button id="saveProfileBtn">Save Profile</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wiimote Settings -->
+            <div class="card">
+                <h2>Wiimote</h2>
+                <div class="card-content">
+                    <div class="row">
+                        <span class="label">Orientation</span>
+                        <select id="wiimoteOrientSelect">
+                            <option value="0">Auto</option>
+                            <option value="1">Horizontal</option>
+                            <option value="2">Vertical</option>
+                        </select>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted);">
+                        Controls D-pad mapping when using Wiimote alone (no extension).
+                    </p>
+                </div>
+            </div>
+
+            <!-- Input Test -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin-bottom: 0;">Input Test</h2>
+                    <button id="streamBtn" class="secondary" style="padding: 6px 12px; font-size: 12px;">Start Stream</button>
+                </div>
+                <div class="card-content">
+                    <div class="stream-container">
+                        <!-- Input (raw controller data) -->
+                        <div class="stream-section">
+                            <h4>Input (Raw) <span id="inputDeviceName" style="font-weight: normal; color: var(--text-muted);"></span>
+                                <button id="rumbleBtn" class="secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 10px;" title="Test rumble on connected controller">🎮 Rumble</button>
+                            </h4>
+                            <div class="input-display" id="inputDisplay">
+                                <div class="buttons" id="inputButtons">
+                                    <span class="btn" data-bit="0">B1</span>
+                                    <span class="btn" data-bit="1">B2</span>
+                                    <span class="btn" data-bit="2">B3</span>
+                                    <span class="btn" data-bit="3">B4</span>
+                                    <span class="btn" data-bit="4">L1</span>
+                                    <span class="btn" data-bit="5">R1</span>
+                                    <span class="btn" data-bit="6">L2</span>
+                                    <span class="btn" data-bit="7">R2</span>
+                                    <span class="btn" data-bit="8">S1</span>
+                                    <span class="btn" data-bit="9">S2</span>
+                                    <span class="btn" data-bit="10">L3</span>
+                                    <span class="btn" data-bit="11">R3</span>
+                                    <span class="btn" data-bit="20">L4</span>
+                                    <span class="btn" data-bit="21">R4</span>
+                                    <span class="btn" data-bit="12">DU</span>
+                                    <span class="btn" data-bit="13">DD</span>
+                                    <span class="btn" data-bit="14">DL</span>
+                                    <span class="btn" data-bit="15">DR</span>
+                                    <span class="btn" data-bit="16">A1</span>
+                                    <span class="btn" data-bit="17">A2</span>
+                                    <span class="btn" data-bit="18">A3</span>
+                                    <!-- <span class="btn" data-bit="19">A4</span> --><!-- Reserved, not used by any controller -->
+                                </div>
+                                <div class="axes">
+                                    <div class="axis">
+                                        <div>LX: <span id="axisLX">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisLXBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>LY: <span id="axisLY">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisLYBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>RX: <span id="axisRX">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisRXBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>RY: <span id="axisRY">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisRYBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>L2: <span id="axisL2">0</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisL2Bar" style="width: 0%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>R2: <span id="axisR2">0</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="axisR2Bar" style="width: 0%"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Output (after profile mapping) -->
+                        <div class="stream-section">
+                            <h4>Output (Mapped)</h4>
+                            <div class="input-display" id="outputDisplay">
+                                <div class="buttons" id="outputButtons">
+                                    <span class="btn" data-bit="0">B1</span>
+                                    <span class="btn" data-bit="1">B2</span>
+                                    <span class="btn" data-bit="2">B3</span>
+                                    <span class="btn" data-bit="3">B4</span>
+                                    <span class="btn" data-bit="4">L1</span>
+                                    <span class="btn" data-bit="5">R1</span>
+                                    <span class="btn" data-bit="6">L2</span>
+                                    <span class="btn" data-bit="7">R2</span>
+                                    <span class="btn" data-bit="8">S1</span>
+                                    <span class="btn" data-bit="9">S2</span>
+                                    <span class="btn" data-bit="10">L3</span>
+                                    <span class="btn" data-bit="11">R3</span>
+                                    <span class="btn" data-bit="20">L4</span>
+                                    <span class="btn" data-bit="21">R4</span>
+                                    <span class="btn" data-bit="12">DU</span>
+                                    <span class="btn" data-bit="13">DD</span>
+                                    <span class="btn" data-bit="14">DL</span>
+                                    <span class="btn" data-bit="15">DR</span>
+                                    <span class="btn" data-bit="16">A1</span>
+                                    <span class="btn" data-bit="17">A2</span>
+                                    <span class="btn" data-bit="18">A3</span>
+                                    <!-- <span class="btn" data-bit="19">A4</span> --><!-- Reserved, not used by any controller -->
+                                </div>
+                                <div class="axes">
+                                    <div class="axis">
+                                        <div>LX: <span id="outAxisLX">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisLXBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>LY: <span id="outAxisLY">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisLYBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>RX: <span id="outAxisRX">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisRXBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>RY: <span id="outAxisRY">128</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisRYBar" style="width: 50%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>L2: <span id="outAxisL2">0</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisL2Bar" style="width: 0%"></div></div>
+                                    </div>
+                                    <div class="axis">
+                                        <div>R2: <span id="outAxisR2">0</span></div>
+                                        <div class="axis-bar"><div class="axis-bar-fill" id="outAxisR2Bar" style="width: 0%"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Settings -->
+            <div class="card">
+                <h2>Advanced</h2>
+                <div class="card-content">
+                    <div class="danger-zone">
+                        <h3>Danger Zone</h3>
+                        <div class="buttons">
+                            <button id="clearBtBtn" class="secondary">Clear BT Bonds</button>
+                            <button id="resetBtn" class="secondary">Factory Reset</button>
+                            <button id="rebootBtn" class="secondary">Reboot</button>
+                            <button id="bootselBtn" class="secondary">Bootloader</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin-bottom: 0;">Log</h2>
+                    <button id="debugStreamBtn" class="secondary" style="padding: 6px 12px; font-size: 12px;">Debug Stream</button>
+                </div>
+                <div class="log" id="log"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+</body>
+</html>
