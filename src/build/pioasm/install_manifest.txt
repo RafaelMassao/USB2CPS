@@ -1,0 +1,5 @@
+/home/massao/joypadai/joypad-os/src/build/pioasm-install/pioasm/pioasm
+/home/massao/joypadai/joypad-os/src/build/pioasm-install/pioasm/pioasmTargets.cmake
+/home/massao/joypadai/joypad-os/src/build/pioasm-install/pioasm/pioasmTargets-release.cmake
+/home/massao/joypadai/joypad-os/src/build/pioasm-install/pioasm/pioasmConfig.cmake
+/home/massao/joypadai/joypad-os/src/build/pioasm-install/pioasm/pioasmConfigVersion.cmake

@@ -1,0 +1,7 @@
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/pioasm.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/edit_cache.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/rebuild_cache.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/list_install_components.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/install.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/install/local.dir
+/home/massao/joypadai/joypad-os/src/build/pioasm/CMakeFiles/install/strip.dir
