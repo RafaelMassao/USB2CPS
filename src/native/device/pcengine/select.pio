@@ -1,0 +1,41 @@
+;
+; By Robert Dale Smith (c) 2022
+;
+;
+; Interfacing for a PC Engine controllers
+;
+
+.program select
+
+sellp:
+    wait 1 pin 0
+    wait 0 pin 0
+    irq 7
+    jmp sellp
+
+% c-sdk {
+static inline void select_program_init(PIO pio, uint sm, uint offset, uint inpin) {
+    pio_sm_config c = select_program_get_default_config(offset);
+
+    // Set the IN base pin to the provided `pin` parameter. This is the data
+    // pin, and the next-numbered GPIO is used as the clock pin.
+    sm_config_set_in_pins(&c, inpin);
+
+    // Set the pin directions to input at the PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, inpin, 1, false);
+
+    // Connect these GPIOs to this PIO block
+    pio_gpio_init(pio, inpin);
+
+    sm_config_set_in_shift(
+        &c,
+        false, // Shift-to-right = false (i.e. shift to left)
+        true,  // Autopush enabled
+        1      // Autopush threshold = 1
+    );
+
+    // Load our configuration, and start the program from the beginning
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
