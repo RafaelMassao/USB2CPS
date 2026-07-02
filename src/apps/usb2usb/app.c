@@ -1,0 +1,210 @@
+// app.c - USB2USB App Entry Point
+// USB to USB HID gamepad adapter
+//
+// This file contains app-specific initialization and logic.
+// The firmware calls app_init() after core system initialization.
+
+#include "app.h"
+#include "core/router/router.h"
+
+// Build info fallbacks (normally set by CMake)
+#ifndef GIT_COMMIT
+#define GIT_COMMIT "not-defined"
+#endif
+#ifndef BUILD_TIME
+#define BUILD_TIME "not-defined"
+#endif
+#include "core/services/players/manager.h"
+#include "core/services/players/feedback.h"
+#include "core/services/button/button.h"
+#include "core/input_interface.h"
+#include "core/output_interface.h"
+#include "usb/usbh/usbh.h"
+#include "usb/usbd/usbd.h"
+
+#include "bt/btstack/btstack_host.h"
+#include "bt/transport/bt_transport.h"
+#include "core/services/leds/leds.h"
+#include "core/buttons.h"
+#include "tusb.h"
+#include "pico/stdlib.h"
+#include <stdio.h>
+
+// ============================================================================
+// BUTTON EVENT HANDLER
+// ============================================================================
+
+static void on_button_event(button_event_t event)
+{
+    switch (event) {
+        case BUTTON_EVENT_CLICK:
+            if (bt_is_ready()) {
+                printf("[app:usb2usb] Starting BT scan (60s)...\n");
+                btstack_host_start_timed_scan(60000);
+            } else {
+                printf("[app:usb2usb] current mode: %s\n",
+                       usbd_get_mode_name(usbd_get_mode()));
+            }
+            break;
+
+        case BUTTON_EVENT_DOUBLE_CLICK: {
+            // Double-click to cycle USB output mode
+            printf("[app:usb2usb] Double-click - switching USB output mode...\n");
+            tud_task();
+            sleep_ms(50);
+            tud_task();
+
+            usb_output_mode_t next = usbd_get_next_mode();
+            printf("[app:usb2usb] Switching to %s\n", usbd_get_mode_name(next));
+            usbd_set_mode(next);
+            break;
+        }
+
+        case BUTTON_EVENT_TRIPLE_CLICK:
+            // Triple-click to reset to default HID mode
+            printf("[app:usb2usb] Triple-click - resetting to HID mode...\n");
+            if (!usbd_reset_to_hid()) {
+                printf("[app:usb2usb] Already in HID mode\n");
+            }
+            break;
+
+        case BUTTON_EVENT_HOLD:
+            // Long press to disconnect all devices and clear all bonds
+            if (bt_is_ready()) {
+                printf("[app:usb2usb] Disconnecting all devices and clearing bonds...\n");
+                btstack_host_disconnect_all_devices();
+            }
+            btstack_host_delete_all_bonds();
+            break;
+
+        default:
+            break;
+    }
+}
+
+// ============================================================================
+// APP INPUT INTERFACES
+// ============================================================================
+
+static const InputInterface* input_interfaces[] = {
+    &usbh_input_interface,
+};
+
+const InputInterface** app_get_input_interfaces(uint8_t* count)
+{
+    *count = sizeof(input_interfaces) / sizeof(input_interfaces[0]);
+    return input_interfaces;
+}
+
+// ============================================================================
+// APP OUTPUT INTERFACES
+// ============================================================================
+
+static const OutputInterface* output_interfaces[] = {
+    &usbd_output_interface,
+};
+
+const OutputInterface** app_get_output_interfaces(uint8_t* count)
+{
+    *count = sizeof(output_interfaces) / sizeof(output_interfaces[0]);
+    return output_interfaces;
+}
+
+// ============================================================================
+// APP INITIALIZATION
+// ============================================================================
+
+void app_init(void)
+{
+    printf("[app:usb2usb] Initializing USB2USB v%s\n", JOYPAD_VERSION);
+
+    // Initialize button service
+    button_init();
+    button_set_callback(on_button_event);
+
+    // Configure router for USB2USB
+    router_config_t router_cfg = {
+        .mode = ROUTING_MODE,
+        .merge_mode = MERGE_MODE,
+        .max_players_per_output = {
+            [OUTPUT_TARGET_USB_DEVICE] = USB_OUTPUT_PORTS,
+        },
+        .merge_all_inputs = true,  // Merge all USB inputs to single output
+        .transform_flags = TRANSFORM_FLAGS,
+        // Mouse-to-analog: Map mouse to right stick for camera control
+        // Useful for accessibility (mouthpad, head tracker) alongside gamepad
+        .mouse_target_x = ANALOG_RY,            // Right stick X
+        .mouse_target_y = MOUSE_AXIS_DISABLED,  // Y disabled (X-only for camera pan)
+        .mouse_drain_rate = 0,                  // No drain - hold position until head returns
+    };
+    router_init(&router_cfg);
+
+    // Add default route: USB Host → USB Device
+    router_add_route(INPUT_SOURCE_USB_HOST, OUTPUT_TARGET_USB_DEVICE, 0);
+
+    // Configure player management
+    player_config_t player_cfg = {
+        .slot_mode = PLAYER_SLOT_MODE,
+        .max_slots = MAX_PLAYER_SLOTS,
+        .auto_assign_on_press = AUTO_ASSIGN_ON_PRESS,
+    };
+    players_init_with_config(&player_cfg);
+
+    printf("[app:usb2usb] Initialization complete\n");
+    printf("[app:usb2usb]   Routing: USB Host → USB Device (HID Gamepad)\n");
+    printf("[app:usb2usb]   Player slots: %d\n", MAX_PLAYER_SLOTS);
+    printf("[app:usb2usb]   Double-click button (GPIO7) to switch USB mode\n");
+}
+
+// ============================================================================
+// APP TASK (Optional - called from main loop)
+// ============================================================================
+
+void app_task(void)
+{
+    // Process button input
+    button_task();
+
+    // Update LED color when USB output mode changes
+    static usb_output_mode_t last_led_mode = USB_OUTPUT_MODE_COUNT;
+    usb_output_mode_t mode = usbd_get_mode();
+    if (mode != last_led_mode) {
+        uint8_t r, g, b;
+        usbd_get_mode_color(mode, &r, &g, &b);
+        leds_set_color(r, g, b);
+        last_led_mode = mode;
+    }
+
+    // Update LED with connected device count (USB HID + BT)
+    // This makes LED go solid as soon as a controller is detected,
+    // without waiting for button press to assign as player
+    int devices = 0;
+    for (uint8_t addr = 1; addr < MAX_DEVICES; addr++) {
+        if (tuh_mounted(addr) && tuh_hid_instance_count(addr) > 0) {
+            devices++;
+        }
+    }
+    if (bt_is_ready()) {
+        devices += btstack_classic_get_connection_count();
+    }
+    leds_set_connected_devices(devices);
+
+    // Route feedback from USB device output to USB host input controllers
+    // The output interface receives rumble/LED from the console/host
+    // and we forward it to connected controllers via the feedback system
+    if (usbd_output_interface.get_feedback) {
+        output_feedback_t fb;
+        if (usbd_output_interface.get_feedback(&fb)) {
+            // Set feedback for all active players
+            for (int i = 0; i < playersCount; i++) {
+                feedback_set_rumble(i, fb.rumble_left, fb.rumble_right);
+                if (fb.led_player > 0) {
+                    feedback_set_led_player(i, fb.led_player);
+                }
+                if (fb.led_r || fb.led_g || fb.led_b) {
+                    feedback_set_led_rgb(i, fb.led_r, fb.led_g, fb.led_b);
+                }
+            }
+        }
+    }
+}
