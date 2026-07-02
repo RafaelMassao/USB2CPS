@@ -1,0 +1,17 @@
+*~
+*.bak
+*.orig
+*.swp
+.vscode
+src/build
+.DS_Store
+releases/
+src/build/
+.dev
+node_modules/
+.env
+site/
+esp/build/
+esp/sdkconfig
+esp/dependencies.lock
+esp/.cache/
