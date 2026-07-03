@@ -44,7 +44,8 @@ static void flush_output(void)
 // - RP2040: BTstack at end of flash (last 2 sectors)
 // - RP2350 (A2): BTstack 1 sector from end (due to RP2350-E10 errata)
 //
-// Dual-sector layout (from end):
+// Dual-sector layout (from end):    // Restore persisted custom mapping after profile_init() has loaded flash.
+    cm_load_custom_profile_from_flash();
 //   [... code ...] [Sector B] [Sector A] [BTstack 8KB] [end]
 // Sector A is at the original offset (preserves existing user data on upgrade)
 
@@ -255,7 +256,8 @@ static bool flash_write_page(uint8_t slot_index, const flash_t* settings)
 {
     static flash_t write_buffer;  // Static to persist during flash ops
     memcpy(&write_buffer, settings, sizeof(flash_t));
-
+    // Restore persisted custom mapping after profile_init() has loaded flash.
+    cm_load_custom_profile_from_flash();
     uint32_t offset = get_slot_offset(slot_index);
 
     page_program_params_t params = {
@@ -340,6 +342,10 @@ void flash_save_now(const flash_t* settings)
            (unsigned long)verify->magic, (unsigned long)verify->sequence,
            verify->active_profile_index, verify->usb_output_mode,
            verify->wiimote_orient_mode);
+
+    if (runtime_settings_loaded) {
+        memcpy(&runtime_settings, &write_settings, sizeof(flash_t));
+    }
 
     save_pending = false;
 }
@@ -466,7 +472,7 @@ uint8_t flash_get_active_profile_index(void)
     return runtime_settings.active_profile_index;
 }
 
-// Set active custom profile index (saves to flash with debouncing)
+// Set active custom profile index (saves to flash immediately)
 void flash_set_active_profile_index(uint8_t index)
 {
     if (!runtime_settings_loaded) {
@@ -481,7 +487,7 @@ void flash_set_active_profile_index(uint8_t index)
 
     if (runtime_settings.active_profile_index != index) {
         runtime_settings.active_profile_index = index;
-        flash_save(&runtime_settings);
+        flash_save_now(&runtime_settings);
 
         printf("[flash] Active profile set to %d\n", index);
     }
@@ -545,4 +551,3 @@ void flash_cycle_profile_prev(void)
     uint8_t prev = (current == 0) ? (total - 1) : (current - 1);
     flash_set_active_profile_index(prev);
 }
-
