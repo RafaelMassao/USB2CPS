@@ -341,10 +341,6 @@ void flash_save_now(const flash_t* settings)
            verify->active_profile_index, verify->usb_output_mode,
            verify->wiimote_orient_mode);
 
-    if (runtime_settings_loaded) {
-        memcpy(&runtime_settings, &write_settings, sizeof(flash_t));
-    }
-
     save_pending = false;
 }
 
