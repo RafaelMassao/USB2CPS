@@ -94,9 +94,9 @@ static const uint32_t cm_neogeo_outputs[CM_MAX_SLOTS] = {
 static const uint8_t cm_slot_colors[CM_MAX_SLOTS][3] = {
     {25, 64, 0},   // B1 - Yellow       (R+G) {64, 64, 0},
     {0, 0, 64},    // B2 - Blue          (B) 0, 0, 64},
-    {48, 0, 64},   // B3 - Magenta       (R+B) {64, 0, 64}, 
-    {0, 64, 64},   // B4 - Cyan          (G+B) {0, 64, 64}, 
-    {25, 32, 0},   // B5 - Orange        (R + half G) {64, 32, 0},  
+    {48, 0, 64},   // B3 - Magenta       (R+B) {64, 0, 64},
+    {0, 64, 64},   // B4 - Cyan          (G+B) {0, 64, 64},
+    {25, 32, 0},   // B5 - Orange        (R + half G) {64, 32, 0},
     {16, 0, 64},   // B6 - Purple/Violet (half R + B) 32, 0, 64},
 };
 
@@ -546,8 +546,6 @@ bool app_gpio_use_left_analog_as_dpad(void)
 {
     return cm_analog_dpad_enabled;
 }
-// Restore persisted custom mapping after profile_init() has loaded flash.
-cm_load_custom_profile_from_flash();
 // Toggle analog-direction input with Start + Coin + B1.
 // Uses rising-edge latching so holding the combo doesn't retrigger every frame.
 static void cm_process_analog_toggle(uint32_t buttons)
@@ -616,7 +614,7 @@ void app_init(void)
 
     // Initialize profile system with app-defined profiles
     profile_init(&app_profile_config);
-                                               
+    
     // Restore persisted custom mapping after profile_init() has loaded flash.
     cm_load_custom_profile_from_flash();
 
