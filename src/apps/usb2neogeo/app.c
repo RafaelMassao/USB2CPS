@@ -34,6 +34,7 @@
 #include "core/router/router.h"
 #include "core/services/players/manager.h"
 #include "core/services/profiles/profile.h"
+#include "core/services/storage/flash.h"
 #include "core/services/leds/leds.h"
 #include "core/input_interface.h"
 #include "core/output_interface.h"
@@ -114,12 +115,6 @@ static uint32_t cm_last_record_time = 0;               // Last accepted slot tim
 static bool cm_custom_active = false;                   // Is custom profile currently active?
 static bool cm_analog_dpad_enabled = false;             // Runtime: left analog also drives D-pad
 static bool cm_analog_toggle_latched = false;           // Edge latch for Start+Coin+B1 toggle
-static uint32_t cm_menu_combo_start = 0;                // Start+Coin+strong buttons hold timer
-static uint32_t cm_aux_combo_start = 0;                 // Start+Coin+weak buttons hold timer
-
-#define CM_SERVICE_HOLD_TIME_MS 1000
-#define CM_MENU_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_R1 | JP_BUTTON_R2)
-#define CM_AUX_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_B3 | JP_BUTTON_B1)
 
 // Timer for returning BOTH LEDs to base color after temporary feedback effects.
 static uint32_t led_feedback_timer = 0;
@@ -129,6 +124,8 @@ static uint8_t cm_last_profile_index = 0;
 
 // Forward declarations
 static void cm_apply_recording(void);
+static void cm_save_custom_profile_to_flash(void);
+static void cm_load_custom_profile_from_flash(void);
 static void cm_enter_recording(void);
 static void cm_exit_recording(void);
 
@@ -173,8 +170,9 @@ static gpio_device_config_t gpio_gpio_config[GPIO_MAX_PLAYERS] = {
 
         .pin_s1 = P1_NEOGEO_S1_PIN,
         .pin_s2 = P1_NEOGEO_S2_PIN,
-        .pin_a1 = P1_NEOGEO_MENU_PIN,
-        .pin_a2 = P1_NEOGEO_AUX_PIN,
+        .pin_a1 = GPIO_DISABLED,
+        .pin_a2 = GPIO_DISABLED,
+
         // Extra Buttons
         .pin_l3 = GPIO_DISABLED,
         .pin_r3 = GPIO_DISABLED,
@@ -253,6 +251,7 @@ static void cm_exit_recording(void)
         // We recorded at least one button — apply the custom mapping
         cm_apply_recording();
         cm_custom_active = true;
+        cm_save_custom_profile_to_flash();
 
         // Visual feedback: brief white flash on both LEDs to confirm save,
         // then the ext LED will return to green in app_task() after the timer
@@ -336,6 +335,88 @@ static void cm_apply_recording(void)
         }
     }
 }
+
+// Convert a single JP_BUTTON_* bit to the generic flash button index.
+static int cm_button_bit_to_index(uint32_t button)
+{
+    for (int i = 0; i < CUSTOM_PROFILE_BUTTON_COUNT; i++) {
+        if (button == (1u << i)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Persist the runtime Neo Geo custom map in the generic flash custom profile slot.
+static void cm_save_custom_profile_to_flash(void)
+{
+    flash_t* settings = flash_get_settings();
+    if (!settings) {
+        return;
+    }
+
+    custom_profile_t* profile = &settings->profiles[0];
+    custom_profile_init(profile, "NeoGeo");
+
+    for (uint8_t i = 0; i < neogeo_custom_map_count; i++) {
+        int input_idx = cm_button_bit_to_index(neogeo_custom_map[i].input);
+        if (input_idx < 0) {
+            continue;
+        }
+
+        if (neogeo_custom_map[i].output == 0) {
+            profile->button_map[input_idx] = BUTTON_MAP_DISABLED;
+        } else {
+            int output_idx = cm_button_bit_to_index(neogeo_custom_map[i].output);
+            if (output_idx >= 0) {
+                profile->button_map[input_idx] = (uint8_t)(output_idx + 1);
+            }
+        }
+    }
+
+    settings->custom_profile_count = 1;
+    settings->active_profile_index = 1;
+    flash_save_now(settings);
+    printf("[app:usb2neogeo] Custom mapping persisted to flash\n");
+}
+
+// Restore the Neo Geo custom map from the generic flash custom profile slot.
+static void cm_load_custom_profile_from_flash(void)
+{
+    const custom_profile_t* profile = flash_get_active_custom_profile();
+    if (!profile) {
+        return;
+    }
+
+    uint8_t map_idx = 0;
+    for (int input_idx = 0; input_idx < CUSTOM_PROFILE_BUTTON_COUNT && map_idx < CUSTOM_MAP_MAX_ENTRIES; input_idx++) {
+        uint8_t mapping = profile->button_map[input_idx];
+        if (mapping == BUTTON_MAP_PASSTHROUGH) {
+            continue;
+        }
+
+        neogeo_custom_map[map_idx].input = (1u << input_idx);
+        neogeo_custom_map[map_idx].analog = ANALOG_TARGET_NONE;
+        neogeo_custom_map[map_idx].analog_value = 0;
+
+        if (mapping == BUTTON_MAP_DISABLED) {
+            neogeo_custom_map[map_idx].output = 0;
+        } else if (mapping >= 1 && mapping <= CUSTOM_PROFILE_BUTTON_COUNT) {
+            neogeo_custom_map[map_idx].output = (1u << (mapping - 1));
+        } else {
+            continue;
+        }
+        map_idx++;
+    }
+
+    if (map_idx > 0) {
+        neogeo_custom_map_count = map_idx;
+        neogeo_profile_custom.button_map_count = map_idx;
+        cm_custom_active = true;
+        printf("[app:usb2neogeo] Custom mapping restored from flash (%d entries)\n", map_idx);
+    }
+}
+
 
 // Return a bit mask of inputs already recorded in the current session.
 static uint32_t cm_recorded_mask(void)
@@ -458,8 +539,6 @@ bool app_is_recording(void)
     return (cm_state == CM_STATE_RECORDING);
 }
 
-extern void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed);
-
 // Runtime hook consumed by gpio_device.c (weak default there).
 // true  => keep current behavior (left analog + D-pad both drive direction)
 // false => ignore left analog for direction output (D-pad only)
@@ -467,34 +546,10 @@ bool app_gpio_use_left_analog_as_dpad(void)
 {
     return cm_analog_dpad_enabled;
 }
-
+// Restore persisted custom mapping after profile_init() has loaded flash.
+cm_load_custom_profile_from_flash();
 // Toggle analog-direction input with Start + Coin + B1.
 // Uses rising-edge latching so holding the combo doesn't retrigger every frame.
-
-static bool cm_process_service_combo(uint32_t buttons, uint32_t combo_mask, uint32_t* hold_start)
-{
-    bool combo_pressed = (buttons & combo_mask) == combo_mask;
-    if (!combo_pressed) {
-        *hold_start = 0;
-        return false;
-    }
-
-    uint32_t now = platform_time_ms();
-    if (*hold_start == 0) {
-        *hold_start = now;
-        return false;
-    }
-
-    return (now - *hold_start) >= CM_SERVICE_HOLD_TIME_MS;
-}
-
-static void cm_process_service_outputs(uint32_t buttons)
-{
-    bool menu_pressed = cm_process_service_combo(buttons, CM_MENU_COMBO_MASK, &cm_menu_combo_start);
-    bool aux_pressed = cm_process_service_combo(buttons, CM_AUX_COMBO_MASK, &cm_aux_combo_start);
-    gpio_device_set_aux_outputs(0, menu_pressed, aux_pressed);
-}
-
 static void cm_process_analog_toggle(uint32_t buttons)
 {
     uint32_t combo_mask = JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_B1;
@@ -561,13 +616,16 @@ void app_init(void)
 
     // Initialize profile system with app-defined profiles
     profile_init(&app_profile_config);
-
-    uint8_t profile_count = profile_get_count(OUTPUT_TARGET_GPIO);
-    const char* active_name = profile_get_name(OUTPUT_TARGET_GPIO,
-                                                profile_get_active_index(OUTPUT_TARGET_GPIO));
+                                               
+    // Restore persisted custom mapping after profile_init() has loaded flash.
+    cm_load_custom_profile_from_flash();
 
     // Store initial profile index for change detection
     cm_last_profile_index = profile_get_active_index(OUTPUT_TARGET_GPIO);
+
+    uint8_t profile_count = profile_get_count(OUTPUT_TARGET_GPIO);
+    const char* active_name = cm_custom_active ? neogeo_profile_custom.name :
+        profile_get_name(OUTPUT_TARGET_GPIO, cm_last_profile_index);
 
     printf("[app:usb2neogeo] Initialization complete\n");
     printf("[app:usb2neogeo]   Routing: %s\n", "SIMPLE (USB → NEOGEO+ adapter 1:1)");
@@ -575,8 +633,6 @@ void app_init(void)
     printf("[app:usb2neogeo]   Profiles: %d fixed + 1 custom (active: %s)\n", profile_count, active_name ? active_name : "none");
     printf("[app:usb2neogeo]   Custom mapping: Hold Coin 2s to record B1-B6\n");
     printf("[app:usb2neogeo]   Analog direction toggle: Start+Coin+B1 (default = D-PAD ONLY)\n");
-    printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
-    
     printf("[app:usb2neogeo]   External RGB LED: GP%d(R) GP%d(G) GP%d(B) — GREEN = ready\n",
            EXT_LED_PIN_RED, EXT_LED_PIN_GREEN, EXT_LED_PIN_BLUE);
 }
@@ -643,9 +699,6 @@ void app_task(void)
     // Disabled while recording so button capture behavior stays deterministic.
     if (!app_is_recording()) {
         cm_process_analog_toggle(enriched_buttons);
-        cm_process_service_outputs(enriched_buttons);
-    } else {
-        gpio_device_set_aux_outputs(0, false, false);     
     }
 
     // When recording just ended (transition from RECORDING to IDLE),
