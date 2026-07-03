@@ -114,6 +114,12 @@ static uint32_t cm_last_record_time = 0;               // Last accepted slot tim
 static bool cm_custom_active = false;                   // Is custom profile currently active?
 static bool cm_analog_dpad_enabled = false;             // Runtime: left analog also drives D-pad
 static bool cm_analog_toggle_latched = false;           // Edge latch for Start+Coin+B1 toggle
+static uint32_t cm_menu_combo_start = 0;                // Start+Coin+strong buttons hold timer
+static uint32_t cm_aux_combo_start = 0;                 // Start+Coin+weak buttons hold timer
+
+#define CM_SERVICE_HOLD_TIME_MS 1000
+#define CM_MENU_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_R1 | JP_BUTTON_R2)
+#define CM_AUX_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_B3 | JP_BUTTON_B1)
 
 // Timer for returning BOTH LEDs to base color after temporary feedback effects.
 static uint32_t led_feedback_timer = 0;
@@ -167,9 +173,8 @@ static gpio_device_config_t gpio_gpio_config[GPIO_MAX_PLAYERS] = {
 
         .pin_s1 = P1_NEOGEO_S1_PIN,
         .pin_s2 = P1_NEOGEO_S2_PIN,
-        .pin_a1 = GPIO_DISABLED,
-        .pin_a2 = GPIO_DISABLED,
-
+        .pin_a1 = P1_NEOGEO_MENU_PIN,
+        .pin_a2 = P1_NEOGEO_AUX_PIN,
         // Extra Buttons
         .pin_l3 = GPIO_DISABLED,
         .pin_r3 = GPIO_DISABLED,
@@ -453,6 +458,8 @@ bool app_is_recording(void)
     return (cm_state == CM_STATE_RECORDING);
 }
 
+extern void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed);
+
 // Runtime hook consumed by gpio_device.c (weak default there).
 // true  => keep current behavior (left analog + D-pad both drive direction)
 // false => ignore left analog for direction output (D-pad only)
@@ -463,6 +470,31 @@ bool app_gpio_use_left_analog_as_dpad(void)
 
 // Toggle analog-direction input with Start + Coin + B1.
 // Uses rising-edge latching so holding the combo doesn't retrigger every frame.
+
+static bool cm_process_service_combo(uint32_t buttons, uint32_t combo_mask, uint32_t* hold_start)
+{
+    bool combo_pressed = (buttons & combo_mask) == combo_mask;
+    if (!combo_pressed) {
+        *hold_start = 0;
+        return false;
+    }
+
+    uint32_t now = platform_time_ms();
+    if (*hold_start == 0) {
+        *hold_start = now;
+        return false;
+    }
+
+    return (now - *hold_start) >= CM_SERVICE_HOLD_TIME_MS;
+}
+
+static void cm_process_service_outputs(uint32_t buttons)
+{
+    bool menu_pressed = cm_process_service_combo(buttons, CM_MENU_COMBO_MASK, &cm_menu_combo_start);
+    bool aux_pressed = cm_process_service_combo(buttons, CM_AUX_COMBO_MASK, &cm_aux_combo_start);
+    gpio_device_set_aux_outputs(0, menu_pressed, aux_pressed);
+}
+
 static void cm_process_analog_toggle(uint32_t buttons)
 {
     uint32_t combo_mask = JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_B1;
@@ -543,6 +575,8 @@ void app_init(void)
     printf("[app:usb2neogeo]   Profiles: %d fixed + 1 custom (active: %s)\n", profile_count, active_name ? active_name : "none");
     printf("[app:usb2neogeo]   Custom mapping: Hold Coin 2s to record B1-B6\n");
     printf("[app:usb2neogeo]   Analog direction toggle: Start+Coin+B1 (default = D-PAD ONLY)\n");
+    printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
+    
     printf("[app:usb2neogeo]   External RGB LED: GP%d(R) GP%d(G) GP%d(B) — GREEN = ready\n",
            EXT_LED_PIN_RED, EXT_LED_PIN_GREEN, EXT_LED_PIN_BLUE);
 }
@@ -609,6 +643,9 @@ void app_task(void)
     // Disabled while recording so button capture behavior stays deterministic.
     if (!app_is_recording()) {
         cm_process_analog_toggle(enriched_buttons);
+        cm_process_service_outputs(enriched_buttons);
+    } else {
+        gpio_device_set_aux_outputs(0, false, false);     
     }
 
     // When recording just ended (transition from RECORDING to IDLE),
