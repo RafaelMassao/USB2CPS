@@ -44,8 +44,7 @@ static void flush_output(void)
 // - RP2040: BTstack at end of flash (last 2 sectors)
 // - RP2350 (A2): BTstack 1 sector from end (due to RP2350-E10 errata)
 //
-// Dual-sector layout (from end):    // Restore persisted custom mapping after profile_init() has loaded flash.
-    cm_load_custom_profile_from_flash();
+// Dual-sector layout (from end):
 //   [... code ...] [Sector B] [Sector A] [BTstack 8KB] [end]
 // Sector A is at the original offset (preserves existing user data on upgrade)
 
@@ -256,8 +255,6 @@ static bool flash_write_page(uint8_t slot_index, const flash_t* settings)
 {
     static flash_t write_buffer;  // Static to persist during flash ops
     memcpy(&write_buffer, settings, sizeof(flash_t));
-    // Restore persisted custom mapping after profile_init() has loaded flash.
-    cm_load_custom_profile_from_flash();
     uint32_t offset = get_slot_offset(slot_index);
 
     page_program_params_t params = {
