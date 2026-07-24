@@ -14,6 +14,9 @@
 #define APP_VERSION "1.0.0"
 #define APP_DESCRIPTION "USB to NEOGEO adapter"
 #define APP_AUTHOR "herzmx"
+#ifndef GPIO_DISABLED
+#define GPIO_DISABLED 0xFF
+#endif
 
 // ============================================================================
 // CORE DEPENDENCIES (What drivers to compile in)
@@ -67,18 +70,20 @@
     #define P1_NEOGEO_B5_PIN 20
     #define P1_NEOGEO_B6_PIN 7
 #elif defined(PICO_RP2040_ZERO_BUILD)
-    #define P1_NEOGEO_DU_PIN 14 //padrao voltar pra 14
-    #define P1_NEOGEO_DD_PIN 27
-    #define P1_NEOGEO_DR_PIN 28
-    #define P1_NEOGEO_DL_PIN 13
-    #define P1_NEOGEO_S1_PIN 3
-    #define P1_NEOGEO_S2_PIN 10
-    #define P1_NEOGEO_B1_PIN 12
-    #define P1_NEOGEO_B2_PIN 29
-    #define P1_NEOGEO_B3_PIN 11
-    #define P1_NEOGEO_B4_PIN 4
-    #define P1_NEOGEO_B5_PIN 9
-    #define P1_NEOGEO_B6_PIN 5
+    #define P1_NEOGEO_MENU_PIN 6
+    #define P1_NEOGEO_AUX_PIN 29
+    #define P1_NEOGEO_DU_PIN 7
+    #define P1_NEOGEO_DD_PIN 8
+    #define P1_NEOGEO_DL_PIN 9
+    #define P1_NEOGEO_DR_PIN 10
+    #define P1_NEOGEO_S2_PIN 11
+    #define P1_NEOGEO_S1_PIN 12
+    #define P1_NEOGEO_B1_PIN 28
+    #define P1_NEOGEO_B2_PIN 27
+    #define P1_NEOGEO_B3_PIN 26
+    #define P1_NEOGEO_B4_PIN 15
+    #define P1_NEOGEO_B5_PIN 14
+    #define P1_NEOGEO_B6_PIN 13
 #else
     #define P1_NEOGEO_DU_PIN 29
     #define P1_NEOGEO_DD_PIN 2
@@ -94,6 +99,13 @@
     #define P1_NEOGEO_B6_PIN 7
 #endif
 
+
+#ifndef P1_NEOGEO_MENU_PIN
+#define P1_NEOGEO_MENU_PIN GPIO_DISABLED
+#endif
+#ifndef P1_NEOGEO_AUX_PIN
+#define P1_NEOGEO_AUX_PIN GPIO_DISABLED
+#endif
 
 
 // ============================================================================
