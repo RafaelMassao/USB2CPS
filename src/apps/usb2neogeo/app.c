@@ -5,12 +5,12 @@
 // The firmware calls app_init() after core system initialization.
 //
 // CUSTOM MAPPING FEATURE:
-// Hold Coin (S1) for 2 seconds to enter recording mode.
-// While still holding Coin, press buttons in sequence to assign them to
+// Hold Coin (S1) or Home/Guide (A1) for 2 seconds to enter recording mode.
+// While still holding the same trigger, press buttons in sequence to assign them to
 // Neo Geo outputs B1, B2, B3, B4, B5, B6 (in that order).
-// Release Coin to finalize and save the custom mapping.
+// Release the trigger to finalize and save the custom mapping.
 // Only action buttons are recordable: Cross, Circle, Square, Triangle, L1, R1, L2, R2.
-// D-pad, Coin, and Start always pass through and cannot be recorded.
+// D-pad, Coin, Home/Guide, and Start always pass through and cannot be recorded.
 //
 // NOTE: For XInput controllers (Xbox), L2/R2 are purely analog triggers.
 // The driver does NOT set JP_BUTTON_L2/R2 digital bits. We synthesize them
@@ -23,7 +23,7 @@
 // The external RGB LED (common cathode, PWM on GP0/GP1/GP5) provides
 // a panel-mountable visual indicator with the following states:
 //   - GREEN constant:  System ready / normal operation
-//   - RED:             Entered recording mode (Coin held 2s)
+//   - RED:             Entered recording mode (Coin or Home held 2s)
 //   - Color per slot:  Each button press during recording shows a unique color
 //                      (Yellow, Blue, Magenta, Cyan, Orange, Purple)
 //   - GREEN returns:   After recording is saved, LED returns to green
@@ -51,9 +51,9 @@
 // Recording state machine
 typedef enum {
     CM_STATE_IDLE,          // Normal operation
-    CM_STATE_WAITING,       // Coin held alone, waiting for 2s threshold
-    CM_STATE_BLOCKED,       // Coin is held with other inputs; ignore custom mode until release
-    CM_STATE_RECORDING,     // Recording mode active (Coin still held)
+    CM_STATE_WAITING,       // Mapping trigger held alone, waiting for 2s threshold
+    CM_STATE_BLOCKED,       // Trigger is held with other inputs; ignore custom mode until release
+    CM_STATE_RECORDING,     // Recording mode active (trigger still held)
 } cm_state_t;
 
 // Maximum number of Neo Geo action button slots to record
@@ -65,9 +65,13 @@ typedef enum {
 #define CM_ALLOWED_BUTTONS (JP_BUTTON_B1 | JP_BUTTON_B2 | JP_BUTTON_B3 | JP_BUTTON_B4 | \
                             JP_BUTTON_L1 | JP_BUTTON_R1 | JP_BUTTON_L2 | JP_BUTTON_R2)
 
-// Any input besides Coin prevents entering custom mapping.
+// Either Coin (S1) or Home/Guide (A1) can be held to enter custom mapping.
+// This helps controllers that do not report Coin/Select consistently.
+#define CM_TRIGGER_BUTTONS (JP_BUTTON_S1 | JP_BUTTON_A1)
+
+// Any input besides the held mapping trigger prevents entering custom mapping.
 // Recording can still capture action buttons after the mode has been entered.
-#define CM_NON_COIN_BUTTONS_MASK (~((uint32_t)JP_BUTTON_S1))
+#define CM_NON_TRIGGER_BUTTONS_MASK (~((uint32_t)CM_TRIGGER_BUTTONS))
 
 // Hold time in milliseconds to enter recording mode
 #define CM_HOLD_TIME_MS 2000
@@ -247,7 +251,7 @@ static void cm_enter_recording(void)
     // Visual feedback: RED on both LEDs = "recording mode entered, waiting for buttons"
     set_both_leds(64, 0, 0);
 
-    printf("[app:usb2neogeo] Custom mapping: RECORDING started (LED=RED, hold Coin, press buttons for B1-B6)\n");
+    printf("[app:usb2neogeo] Custom mapping: RECORDING started (LED=RED, keep Coin or Home held, press buttons for B1-B6)\n");
 }
 
 // Exit recording mode: build the custom profile from recorded inputs
@@ -357,29 +361,29 @@ static uint32_t cm_recorded_mask(void)
 // Called from app_task() with the enriched button state (including synthesized L2/R2)
 static void cm_process_recording(uint32_t buttons)
 {
-    bool coin_held = (buttons & JP_BUTTON_S1) != 0;
-    bool coin_only = coin_held && ((buttons & CM_NON_COIN_BUTTONS_MASK) == 0);
+    bool trigger_held = (buttons & CM_TRIGGER_BUTTONS) != 0;
+    bool trigger_only = trigger_held && ((buttons & CM_NON_TRIGGER_BUTTONS_MASK) == 0);
 
     switch (cm_state) {
         case CM_STATE_IDLE:
-            // Only start the hold timer when Coin is pressed by itself.
-            // Coin combined with any other input is treated as a normal combo
-            // and cannot enter custom mapping until Coin is released first.
-            if (coin_only) {
+            // Only start the hold timer when Coin or Home/Guide is pressed by itself.
+            // The trigger combined with any other input is treated as a normal
+            // combo and cannot enter custom mapping until released first.
+            if (trigger_only) {
                 cm_state = CM_STATE_WAITING;
                 cm_hold_start = platform_time_ms();
-            } else if (coin_held) {
+            } else if (trigger_held) {
                 cm_state = CM_STATE_BLOCKED;
             }
             break;
 
         case CM_STATE_WAITING:
-            if (!coin_held) {
-                // Coin released before 2s — abort, go back to idle
+            if (!trigger_held) {
+                // Trigger released before 2s — abort, go back to idle
                 cm_state = CM_STATE_IDLE;
-            } else if (!coin_only) {
+            } else if (!trigger_only) {
                 // Any additional input pressed while waiting cancels custom mode
-                // for this Coin hold, so chords cannot accidentally start mapping.
+                // for this trigger hold, so chords cannot accidentally start mapping.
                 cm_state = CM_STATE_BLOCKED;
             } else {
                 uint32_t elapsed = platform_time_ms() - cm_hold_start;
@@ -390,14 +394,14 @@ static void cm_process_recording(uint32_t buttons)
             break;
             
         case CM_STATE_BLOCKED:
-            if (!coin_held) {
+            if (!trigger_held) {
                 cm_state = CM_STATE_IDLE;
             }
             break;
 
         case CM_STATE_RECORDING:
-            if (!coin_held) {
-                // Coin released — finalize recording
+            if (!trigger_held) {
+                // Trigger released — finalize recording
                 cm_exit_recording();
             } else {
                 // Detect newly pressed buttons (rising edge only)
@@ -644,7 +648,7 @@ void app_init(void)
     printf("[app:usb2neogeo]   Routing: %s\n", "SIMPLE (USB → NEOGEO+ adapter 1:1)");
     printf("[app:usb2neogeo]   Player slots: %d (SHIFT mode - players shift on disconnect)\n", MAX_PLAYER_SLOTS);
     printf("[app:usb2neogeo]   Profiles: %d fixed + 1 custom (active: %s)\n", profile_count, active_name ? active_name : "none");
-    printf("[app:usb2neogeo]   Custom mapping: Hold Coin 2s to record B1-B6\n");
+    printf("[app:usb2neogeo]   Custom mapping: Hold Coin or Home 2s to record B1-B6\n");
     printf("[app:usb2neogeo]   Analog direction toggle: Start+Coin+B1 (default = D-PAD ONLY)\n");
     printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
     
