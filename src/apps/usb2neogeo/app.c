@@ -40,6 +40,7 @@
 #include "native/device/gpio/gpio_device.h"
 #include "usb/usbh/usbh.h"
 #include "platform/platform.h"
+#include "pico/stdlib.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -50,7 +51,8 @@
 // Recording state machine
 typedef enum {
     CM_STATE_IDLE,          // Normal operation
-    CM_STATE_WAITING,       // Coin held, waiting for 2s threshold
+    CM_STATE_WAITING,       // Coin held alone, waiting for 2s threshold
+    CM_STATE_BLOCKED,       // Coin is held with other inputs; ignore custom mode until release
     CM_STATE_RECORDING,     // Recording mode active (Coin still held)
 } cm_state_t;
 
@@ -63,8 +65,12 @@ typedef enum {
 #define CM_ALLOWED_BUTTONS (JP_BUTTON_B1 | JP_BUTTON_B2 | JP_BUTTON_B3 | JP_BUTTON_B4 | \
                             JP_BUTTON_L1 | JP_BUTTON_R1 | JP_BUTTON_L2 | JP_BUTTON_R2)
 
+// Any input besides Coin prevents entering custom mapping.
+// Recording can still capture action buttons after the mode has been entered.
+#define CM_NON_COIN_BUTTONS_MASK (~((uint32_t)JP_BUTTON_S1))
+
 // Hold time in milliseconds to enter recording mode
-#define CM_HOLD_TIME_MS 2500
+#define CM_HOLD_TIME_MS 2000
 
 // Analog trigger threshold for detecting L2/R2 press (0-255)
 // XInput controllers send L2/R2 as analog only (no digital bit).
@@ -74,7 +80,7 @@ typedef enum {
 // Minimum delay between recorded button slots.
 // This filters mechanical bounce/mau contato that can look like two rapid presses
 // of the same physical button during custom mapping.
-#define CM_RECORD_MIN_INTERVAL_MS 200
+#define CM_RECORD_MIN_INTERVAL_MS 10
 
 
 // Neo Geo output targets for each slot (B1 through B6)
@@ -117,7 +123,7 @@ static bool cm_analog_toggle_latched = false;           // Edge latch for Start+
 static uint32_t cm_menu_combo_start = 0;                // Start+Coin+strong buttons hold timer
 static uint32_t cm_aux_combo_start = 0;                 // Start+Coin+weak buttons hold timer
 
-#define CM_SERVICE_HOLD_TIME_MS 300
+#define CM_SERVICE_HOLD_TIME_MS 1000
 #define CM_MENU_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_R1 | JP_BUTTON_R2)
 #define CM_AUX_COMBO_MASK (JP_BUTTON_S2 | JP_BUTTON_S1 | JP_BUTTON_B3 | JP_BUTTON_B1)
 
@@ -352,15 +358,18 @@ static uint32_t cm_recorded_mask(void)
 static void cm_process_recording(uint32_t buttons)
 {
     bool coin_held = (buttons & JP_BUTTON_S1) != 0;
-    bool dpad_any = (buttons & (JP_BUTTON_DU | JP_BUTTON_DD | JP_BUTTON_DL | JP_BUTTON_DR)) != 0;
+    bool coin_only = coin_held && ((buttons & CM_NON_COIN_BUTTONS_MASK) == 0);
 
     switch (cm_state) {
         case CM_STATE_IDLE:
-            // Only start waiting if Coin is held WITHOUT any D-pad direction.
-            // If D-pad is also held, this is the profile-switch combo, not recording.
-            if (coin_held && !dpad_any) {
+            // Only start the hold timer when Coin is pressed by itself.
+            // Coin combined with any other input is treated as a normal combo
+            // and cannot enter custom mapping until Coin is released first.
+            if (coin_only) {
                 cm_state = CM_STATE_WAITING;
                 cm_hold_start = platform_time_ms();
+            } else if (coin_held) {
+                cm_state = CM_STATE_BLOCKED;
             }
             break;
 
@@ -368,14 +377,21 @@ static void cm_process_recording(uint32_t buttons)
             if (!coin_held) {
                 // Coin released before 2s — abort, go back to idle
                 cm_state = CM_STATE_IDLE;
-            } else if (dpad_any) {
-                // D-pad pressed while waiting — this is profile-switch, not recording
-                cm_state = CM_STATE_IDLE;
+            } else if (!coin_only) {
+                // Any additional input pressed while waiting cancels custom mode
+                // for this Coin hold, so chords cannot accidentally start mapping.
+                cm_state = CM_STATE_BLOCKED;
             } else {
                 uint32_t elapsed = platform_time_ms() - cm_hold_start;
                 if (elapsed >= CM_HOLD_TIME_MS) {
                     cm_enter_recording();
                 }
+            }
+            break;
+            
+        case CM_STATE_BLOCKED:
+            if (!coin_held) {
+                cm_state = CM_STATE_IDLE;
             }
             break;
 
@@ -488,10 +504,44 @@ static bool cm_process_service_combo(uint32_t buttons, uint32_t combo_mask, uint
     return (now - *hold_start) >= CM_SERVICE_HOLD_TIME_MS;
 }
 
-static void cm_process_service_outputs(uint32_t buttons)
+static const profile_t* cm_get_service_profile(void)
 {
-    bool menu_pressed = cm_process_service_combo(buttons, CM_MENU_COMBO_MASK, &cm_menu_combo_start);
-    bool aux_pressed = cm_process_service_combo(buttons, CM_AUX_COMBO_MASK, &cm_aux_combo_start);
+const profile_t* custom = app_get_custom_profile();
+    if (custom) {
+        return custom;
+    }
+
+    return profile_get_active(OUTPUT_TARGET_GPIO);
+}
+
+static uint32_t cm_apply_service_profile(uint32_t buttons, uint8_t l2, uint8_t r2)
+{
+    const profile_t* profile = cm_get_service_profile();
+    if (!profile) {
+        return buttons;
+    }
+
+    profile_output_t mapped;
+    profile_apply(profile, buttons,
+                  128, 128,
+                  128, 128,
+                  l2, r2,
+                  0,
+                  &mapped);
+
+    return mapped.buttons;
+}
+
+static void cm_process_service_outputs(uint32_t buttons, uint8_t l2, uint8_t r2)
+{
+    // Service combos are defined in Neo Geo output-space (Start/Coin plus
+    // B3+B6 for MENU and B1+B4 for AUX). Apply the active/custom profile
+    // first so the combo follows the user's button mapping instead of the
+    // controller's physical JP_BUTTON positions.
+    uint32_t mapped_buttons = cm_apply_service_profile(buttons, l2, r2);
+
+    bool menu_pressed = cm_process_service_combo(mapped_buttons, CM_MENU_COMBO_MASK, &cm_menu_combo_start);
+    bool aux_pressed = cm_process_service_combo(mapped_buttons, CM_AUX_COMBO_MASK, &cm_aux_combo_start);
     gpio_device_set_aux_outputs(0, menu_pressed, aux_pressed);
 }
 
@@ -522,8 +572,29 @@ static void cm_process_analog_toggle(uint32_t buttons)
 // APP INITIALIZATION
 // ============================================================================
 
+static void app_check_bootsel_pin(void)
+{
+#ifdef USB2NEOGEO_BOOTSEL_PIN
+    gpio_init(USB2NEOGEO_BOOTSEL_PIN);
+    gpio_set_dir(USB2NEOGEO_BOOTSEL_PIN, GPIO_IN);
+    gpio_disable_pulls(USB2NEOGEO_BOOTSEL_PIN);
+
+    // Give the pull-up time to settle before sampling.  This check only runs
+    // once during firmware startup, so grounding the pin later has no effect.
+    sleep_ms(10);
+
+    if (!gpio_get(USB2NEOGEO_BOOTSEL_PIN)) {
+        printf("[app:usb2neogeo] GP%d held LOW at startup; entering USB BOOTSEL/UF2 bootloader\n",
+               USB2NEOGEO_BOOTSEL_PIN);
+        platform_reboot_bootloader();
+    }
+#endif
+}
+
 void app_init(void)
 {
+    app_check_bootsel_pin();
+    
     printf("[app:usb2neogeo] Initializing USB2NEOGEO v%s\n", APP_VERSION);
 
     // Initialize external RGB LED (PWM on GP0, GP1, GP5)
@@ -643,7 +714,7 @@ void app_task(void)
     // Disabled while recording so button capture behavior stays deterministic.
     if (!app_is_recording()) {
         cm_process_analog_toggle(enriched_buttons);
-        cm_process_service_outputs(enriched_buttons);
+        cm_process_service_outputs(enriched_buttons, last_known_l2, last_known_r2);
     } else {
         gpio_device_set_aux_outputs(0, false, false);     
     }

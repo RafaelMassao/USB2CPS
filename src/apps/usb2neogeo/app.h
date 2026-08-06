@@ -84,6 +84,7 @@
     #define P1_NEOGEO_B4_PIN 15
     #define P1_NEOGEO_B5_PIN 14
     #define P1_NEOGEO_B6_PIN 13
+    #define USB2NEOGEO_BOOTSEL_PIN 5
 #else
     #define P1_NEOGEO_DU_PIN 29
     #define P1_NEOGEO_DD_PIN 2
