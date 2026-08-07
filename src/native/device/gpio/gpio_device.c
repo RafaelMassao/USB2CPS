@@ -412,35 +412,6 @@ void gpio_device_init_pins(gpio_device_config_t* config, bool active_high){
   initialized = true;
 }
 
-void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed)
-{
-  if (player_index >= GPIO_MAX_PLAYERS || !initialized) return;
-
-  const gpio_device_port_t* port = &gpio_ports[player_index];
-  uint32_t forced = 0;
-  forced |= a1_pressed ? port->mask_a1 : 0;
-  forced |= a2_pressed ? port->mask_a2 : 0;
-
-  if (gpio_forced_buttons[player_index] == forced) return;
-
-  gpio_forced_buttons[player_index] = forced;
-
-  uint32_t gpio_buttons = forced;
-  if (gpio_has_last_buttons[player_index]) {
-    gpio_buttons |= gpio_last_buttons[player_index] & ~(port->mask_a1 | port->mask_a2);
-  }
-
-  gpio_last_buttons[player_index] = gpio_buttons;
-  gpio_has_last_buttons[player_index] = true;
-
-  if (port->active_high) {
-    gpio_put_masked(port->gpio_mask, gpio_buttons);
-  } else {
-    sio_hw->gpio_oe_set = gpio_buttons;
-    sio_hw->gpio_oe_clr = port->gpio_mask & (~gpio_buttons);
-  }
-}
-
 // Task loop — handles non-latency-critical work (combo detection, cheat codes).
 // GPIO updates are now handled by the tap callback above.
 void gpio_device_task()
