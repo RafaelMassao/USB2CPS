@@ -478,7 +478,6 @@ bool app_is_recording(void)
     return (cm_state == CM_STATE_RECORDING);
 }
 
-extern void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed);
 
 // Runtime hook consumed by gpio_device.c (weak default there).
 // true  => keep current behavior (left analog + D-pad both drive direction)
@@ -486,6 +485,15 @@ extern void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, b
 bool app_gpio_use_left_analog_as_dpad(void)
 {
     return cm_analog_dpad_enabled;
+}
+
+// GP6/GP29 are service outputs with strong external pull-ups on the main
+// board. They must only be pulled low by the validated service combos below;
+// a controller's Home/Guide (A1) or Capture/Touchpad (A2) press must not drive
+// those pins directly through the normal GPIO button mapper.
+bool app_gpio_suppress_direct_aux_outputs(void)
+{
+    return true;
 }
 
 // Toggle analog-direction input with Start + Coin + B1.
@@ -510,7 +518,7 @@ static bool cm_process_service_combo(uint32_t buttons, uint32_t combo_mask, uint
 
 static const profile_t* cm_get_service_profile(void)
 {
-const profile_t* custom = app_get_custom_profile();
+    const profile_t* custom = app_get_custom_profile();
     if (custom) {
         return custom;
     }
@@ -650,7 +658,7 @@ void app_init(void)
     printf("[app:usb2neogeo]   Profiles: %d fixed + 1 custom (active: %s)\n", profile_count, active_name ? active_name : "none");
     printf("[app:usb2neogeo]   Custom mapping: Hold Coin or Home 2s to record B1-B6\n");
     printf("[app:usb2neogeo]   Analog direction toggle: Start+Coin+B1 (default = D-PAD ONLY)\n");
-    printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
+    printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s (direct Home/Capture suppressed)\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
     
     printf("[app:usb2neogeo]   External RGB LED: GP%d(R) GP%d(G) GP%d(B) — GREEN = ready\n",
            EXT_LED_PIN_RED, EXT_LED_PIN_GREEN, EXT_LED_PIN_BLUE);
