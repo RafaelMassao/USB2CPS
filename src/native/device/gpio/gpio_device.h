@@ -4,6 +4,7 @@
 #define GPIO_DEVICE_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "tusb.h"
 #include "core/buttons.h"
@@ -123,5 +124,7 @@ void gpio_device_init(void);
 void gpio_device_task(void);
 void __not_in_flash_func(core1_task)(void);
 void gpio_device_init_pins(gpio_device_config_t* config, bool active_high);
+void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed);
+
 
 #endif // GPIO_DEVICE_H

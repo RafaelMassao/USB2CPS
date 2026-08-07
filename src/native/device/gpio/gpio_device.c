@@ -154,6 +154,8 @@ volatile bool app_tap_has_update = false;
 // Cache last GPIO mask written per player to avoid redundant register writes.
 static uint32_t gpio_last_buttons[GPIO_MAX_PLAYERS] = {0};
 static bool gpio_has_last_buttons[GPIO_MAX_PLAYERS] = {0};
+static uint32_t gpio_forced_buttons[GPIO_MAX_PLAYERS] = {0};
+static uint32_t gpio_aux_buttons[GPIO_MAX_PLAYERS] = {0};
 
 // Cache last tap input signature per player to skip remap work on idle reports.
 typedef struct {
@@ -314,10 +316,14 @@ static void __not_in_flash_func(gpio_tap_callback)(output_target_t output,
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R1) ? port->mask_r1 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L2) ? port->mask_l2 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R2) ? port->mask_r2 : 0;
+  gpio_buttons |= (mapped.buttons & JP_BUTTON_A1) ? port->mask_a1 : 0;
+  gpio_buttons |= (mapped.buttons & JP_BUTTON_A2) ? port->mask_a2 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L3) ? port->mask_l3 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R3) ? port->mask_r3 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L4) ? port->mask_l4 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R4) ? port->mask_r4 : 0;
+  gpio_buttons |= gpio_forced_buttons[player_index];
+  gpio_buttons |= gpio_aux_buttons[player_index];
   // D-pad from left analog stick (threshold at 64/192 from center 128)
   // HID convention: 0=up, 128=center, 255=down
   if (use_left_analog_as_dpad) {
@@ -366,7 +372,31 @@ void gpio_device_init()
   #endif
 }
 
-// 
+//
+void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed)
+{
+  if (player_index >= GPIO_MAX_PLAYERS || !initialized) return;
+
+  const gpio_device_port_t* port = &gpio_ports[player_index];
+  uint32_t aux_buttons = 0;
+  aux_buttons |= a1_pressed ? port->mask_a1 : 0;
+  aux_buttons |= a2_pressed ? port->mask_a2 : 0;
+
+  if (gpio_aux_buttons[player_index] == aux_buttons) return;
+
+  gpio_aux_buttons[player_index] = aux_buttons;
+  gpio_last_buttons[player_index] =
+      (gpio_last_buttons[player_index] & ~(port->mask_a1 | port->mask_a2)) | aux_buttons;
+  gpio_has_last_buttons[player_index] = true;
+
+  if (port->active_high) {
+    gpio_put_masked(port->mask_a1 | port->mask_a2, aux_buttons);
+  } else {
+    sio_hw->gpio_oe_set = aux_buttons;
+    sio_hw->gpio_oe_clr = (port->mask_a1 | port->mask_a2) & (~aux_buttons);
+  }
+}
+
 void gpio_device_init_pins(gpio_device_config_t* config, bool active_high){
   for (int i = 0; i < GPIO_MAX_PLAYERS; i++) {
     gpio_device_port_t* port = &gpio_ports[i];
@@ -374,10 +404,41 @@ void gpio_device_init_pins(gpio_device_config_t* config, bool active_high){
     gpioport_init(port, port_config, active_high);
     gpio_has_last_buttons[i] = false;
     gpio_last_buttons[i] = 0;
+    gpio_forced_buttons[i] = 0;
+    gpio_aux_buttons[i] = 0;
     tap_has_signature[i] = false;
   }
   gpioport_gpio_init(active_high);
   initialized = true;
+}
+
+void gpio_device_set_aux_outputs(uint8_t player_index, bool a1_pressed, bool a2_pressed)
+{
+  if (player_index >= GPIO_MAX_PLAYERS || !initialized) return;
+
+  const gpio_device_port_t* port = &gpio_ports[player_index];
+  uint32_t forced = 0;
+  forced |= a1_pressed ? port->mask_a1 : 0;
+  forced |= a2_pressed ? port->mask_a2 : 0;
+
+  if (gpio_forced_buttons[player_index] == forced) return;
+
+  gpio_forced_buttons[player_index] = forced;
+
+  uint32_t gpio_buttons = forced;
+  if (gpio_has_last_buttons[player_index]) {
+    gpio_buttons |= gpio_last_buttons[player_index] & ~(port->mask_a1 | port->mask_a2);
+  }
+
+  gpio_last_buttons[player_index] = gpio_buttons;
+  gpio_has_last_buttons[player_index] = true;
+
+  if (port->active_high) {
+    gpio_put_masked(port->gpio_mask, gpio_buttons);
+  } else {
+    sio_hw->gpio_oe_set = gpio_buttons;
+    sio_hw->gpio_oe_clr = port->gpio_mask & (~gpio_buttons);
+  }
 }
 
 // Task loop — handles non-latency-critical work (combo detection, cheat codes).
