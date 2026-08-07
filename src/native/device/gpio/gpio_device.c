@@ -34,6 +34,15 @@ __attribute__((weak)) bool app_gpio_use_left_analog_as_dpad(void) {
   return true;
 }
 
+// Optional app hook: prevent JP_BUTTON_A1/A2 from directly driving GPIO aux
+// pins. Apps can still drive those pins explicitly through
+// gpio_device_set_aux_outputs(), which is useful for service/menu combos that
+// must be open-drain outputs without allowing Home/Guide to press them directly.
+__attribute__((weak)) bool app_gpio_suppress_direct_aux_outputs(void) {
+  return false;
+}
+
+
 // ============================================================================
 // INTERNAL STATE
 // ============================================================================
@@ -169,6 +178,7 @@ typedef struct {
   uint8_t rz;
   const profile_t* profile;
   bool use_left_analog_as_dpad;
+  bool suppress_direct_aux_outputs;
 } gpio_tap_signature_t;
 
 static gpio_tap_signature_t tap_last_signature[GPIO_MAX_PLAYERS];
@@ -218,6 +228,7 @@ static void __not_in_flash_func(gpio_tap_callback)(output_target_t output,
   }
 
   bool use_left_analog_as_dpad = app_gpio_use_left_analog_as_dpad();
+  bool suppress_direct_aux_outputs = app_gpio_suppress_direct_aux_outputs();
   const uint8_t* analog = event->analog;
 
   // Fast path: ignore fixed-interval idle reports when neither input state,
@@ -233,7 +244,8 @@ static void __not_in_flash_func(gpio_tap_callback)(output_target_t output,
         last->r2 == analog[ANALOG_R2] &&
         last->rz == analog[ANALOG_RZ] &&
         last->profile == profile &&
-        last->use_left_analog_as_dpad == use_left_analog_as_dpad) {
+        last->use_left_analog_as_dpad == use_left_analog_as_dpad &&
+        last->suppress_direct_aux_outputs == suppress_direct_aux_outputs) {
       return;
     }
   }
@@ -249,6 +261,7 @@ static void __not_in_flash_func(gpio_tap_callback)(output_target_t output,
     .rz = analog[ANALOG_RZ],
     .profile = profile,
     .use_left_analog_as_dpad = use_left_analog_as_dpad,
+    .suppress_direct_aux_outputs = suppress_direct_aux_outputs,
   };
   tap_has_signature[player_index] = true;
 
@@ -316,8 +329,10 @@ static void __not_in_flash_func(gpio_tap_callback)(output_target_t output,
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R1) ? port->mask_r1 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L2) ? port->mask_l2 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R2) ? port->mask_r2 : 0;
-  gpio_buttons |= (mapped.buttons & JP_BUTTON_A1) ? port->mask_a1 : 0;
-  gpio_buttons |= (mapped.buttons & JP_BUTTON_A2) ? port->mask_a2 : 0;
+  if (!suppress_direct_aux_outputs) {
+    gpio_buttons |= (mapped.buttons & JP_BUTTON_A1) ? port->mask_a1 : 0;
+    gpio_buttons |= (mapped.buttons & JP_BUTTON_A2) ? port->mask_a2 : 0;
+  }
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L3) ? port->mask_l3 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_R3) ? port->mask_r3 : 0;
   gpio_buttons |= (mapped.buttons & JP_BUTTON_L4) ? port->mask_l4 : 0;
