@@ -5,12 +5,12 @@
 // The firmware calls app_init() after core system initialization.
 //
 // CUSTOM MAPPING FEATURE:
-// Hold Coin (S1) or Home/Guide (A1) for 2 seconds to enter recording mode.
+// Hold Coin (S1), Home/Guide (A1), or A2 for 2 seconds to enter recording mode.
 // While still holding the same trigger, press buttons in sequence to assign them to
 // Neo Geo outputs B1, B2, B3, B4, B5, B6 (in that order).
 // Release the trigger to finalize and save the custom mapping.
 // Only action buttons are recordable: Cross, Circle, Square, Triangle, L1, R1, L2, R2.
-// D-pad, Coin, Home/Guide, and Start always pass through and cannot be recorded.
+// D-pad, Coin, Home/Guide, A2, and Start always pass through and cannot be recorded.
 //
 // NOTE: For XInput controllers (Xbox), L2/R2 are purely analog triggers.
 // The driver does NOT set JP_BUTTON_L2/R2 digital bits. We synthesize them
@@ -65,9 +65,9 @@ typedef enum {
 #define CM_ALLOWED_BUTTONS (JP_BUTTON_B1 | JP_BUTTON_B2 | JP_BUTTON_B3 | JP_BUTTON_B4 | \
                             JP_BUTTON_L1 | JP_BUTTON_R1 | JP_BUTTON_L2 | JP_BUTTON_R2)
 
-// Either Coin (S1) or Home/Guide (A1) can be held to enter custom mapping.
+// Coin (S1), Home/Guide (A1), or A2 can be held to enter custom mapping.
 // This helps controllers that do not report Coin/Select consistently.
-#define CM_TRIGGER_BUTTONS (JP_BUTTON_S1 | JP_BUTTON_A1)
+#define CM_TRIGGER_BUTTONS (JP_BUTTON_S1 | JP_BUTTON_A1 | JP_BUTTON_A2)
 
 // Any input besides the held mapping trigger prevents entering custom mapping.
 // Recording can still capture action buttons after the mode has been entered.
@@ -251,7 +251,7 @@ static void cm_enter_recording(void)
     // Visual feedback: RED on both LEDs = "recording mode entered, waiting for buttons"
     set_both_leds(64, 0, 0);
 
-    printf("[app:usb2neogeo] Custom mapping: RECORDING started (LED=RED, keep Coin or Home held, press buttons for B1-B6)\n");
+    printf("[app:usb2neogeo] Custom mapping: RECORDING started (LED=RED, keep Coin, Home, or A2 held, press buttons for B1-B6)\n");
 }
 
 // Exit recording mode: build the custom profile from recorded inputs
@@ -656,7 +656,7 @@ void app_init(void)
     printf("[app:usb2neogeo]   Routing: %s\n", "SIMPLE (USB → NEOGEO+ adapter 1:1)");
     printf("[app:usb2neogeo]   Player slots: %d (SHIFT mode - players shift on disconnect)\n", MAX_PLAYER_SLOTS);
     printf("[app:usb2neogeo]   Profiles: %d fixed + 1 custom (active: %s)\n", profile_count, active_name ? active_name : "none");
-    printf("[app:usb2neogeo]   Custom mapping: Hold Coin or Home 2s to record B1-B6\n");
+    printf("[app:usb2neogeo]   Custom mapping: Hold Coin, Home, or A2 2s to record B1-B6\n");
     printf("[app:usb2neogeo]   Analog direction toggle: Start+Coin+B1 (default = D-PAD ONLY)\n");
     printf("[app:usb2neogeo]   Service outputs: MENU=GP%d via Start+Coin+R1+R2 1s, AUX=GP%d via Start+Coin+Square+Cross 1s (direct Home/Capture suppressed)\n", P1_NEOGEO_MENU_PIN, P1_NEOGEO_AUX_PIN);
     
