@@ -1,10 +1,11 @@
 // sony_ds3.c
 #include "sony_ds3.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/services/players/manager.h"
 #include "core/router/router.h"
 #include "core/input_event.h"
-#include "pico/time.h"
+#include "platform/platform.h"
 
 // TODO: Get these from BTstack when BT dongle is connected
 static const uint8_t* btd_get_local_bd_addr(void) {
@@ -66,24 +67,6 @@ void ds3_on_get_report_complete(uint8_t dev_addr, uint8_t instance) {
 bool is_sony_ds3(uint16_t vid, uint16_t pid) {
   return (
     (vid == 0x054c && pid == 0x0268)    // Sony DualShock3
-    // HORI
-    || (vid == 0x0f0d && pid == 0x0010) // HORI Fighting Stick 3
-    || (vid == 0x0f0d && pid == 0x0011) // HORI Real Arcade Pro 3 (RAP 3 SA/SE)
-    || (vid == 0x0f0d && pid == 0x0026) // HORI Real Arcade Pro 3 Premium VLX
-    || (vid == 0x0f0d && pid == 0x0027) // HORI Fighting Stick V3
-    || (vid == 0x0f0d && pid == 0x008b) // HORI RAP V HAYABUSA Controller (PS3 Mode)
-    // Mad Catz
-    || (vid == 0x0738 && pid == 0x3180) // Mad Catz Fight Stick Alpha (PS3 Mode)
-    || (vid == 0x0738 && pid == 0x8818) // Mad Catz SFIV Tournament Edition Round 1 (PS3)
-    || (vid == 0x0738 && pid == 0x8838) // Mad Catz SFIV Tournament Edition Round 2 (PS3)
-    // Quanba
-    || (vid == 0x2c22 && pid == 0x2302) // Qanba Obsidian (PS3 Mode)
-    || (vid == 0x2c22 && pid == 0x2500) // Qanba Dragon (PS3 Mode)
-    // Other
-    || (vid == 0x146b && pid == 0x0904) // Nacon Daija Arcade Stick (PS3 Mode)
-    || (vid == 0x1292 && pid == 0x4e47) // Fire NEOGEOX Arcade Stick (PS3 HID Mode)
-    || (vid == 0x0079 && pid == 0x0006) // Generic Zero Delay USB Encoder (Standard PC/PS3)
-    || (vid == 0x046d && pid == 0xc216) // Logitech F310 (DirectInput / PS3 Mode)
   ); 
 }
 
@@ -112,7 +95,7 @@ bool diff_report_ds3(sony_ds3_report_t const* rpt1, sony_ds3_report_t const* rpt
 void input_sony_ds3(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
   uint32_t buttons;
   // previous report used to compare for changes
-  static sony_ds3_report_t prev_report[5] = { 0 };
+  static sony_ds3_report_t prev_report[MAX_DEVICES] = { 0 };
 
   // Mark that we've received input (DS3 is active and ready)
   ds3_devices[dev_addr].instances[instance].input_received = true;
@@ -451,10 +434,10 @@ static bool ds3_set_report_raw(uint8_t dev_addr, uint8_t instance, uint8_t repor
   }
 
   // Wait for completion with timeout
-  uint32_t start = to_ms_since_boot(get_absolute_time());
+  uint32_t start = platform_time_ms();
   while (!ds3_xfer_complete) {
     tuh_task();  // Process USB events
-    if (to_ms_since_boot(get_absolute_time()) - start > 1000) {
+    if (platform_time_ms() - start > 1000) {
       printf("[DS3] Control transfer timeout!\n");
       return false;
     }
@@ -587,7 +570,7 @@ void task_sony_ds3(uint8_t dev_addr, uint8_t instance, device_output_config_t* c
   const uint32_t interval_ms = 20;
   static uint32_t start_ms = 0;
 
-  uint32_t current_time_ms = to_ms_since_boot(get_absolute_time());
+  uint32_t current_time_ms = platform_time_ms();
   if (current_time_ms - start_ms >= interval_ms) {
     start_ms = current_time_ms;
     output_sony_ds3(dev_addr, instance, config);

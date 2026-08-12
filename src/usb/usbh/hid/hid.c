@@ -1,5 +1,6 @@
 // hid.c - HID protocol handler (TinyUSB HID host callbacks)
 #include "tusb.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/output_interface.h"
 #include "core/services/players/manager.h"
@@ -10,8 +11,9 @@
 #include "usb/usbh/hid/hid_registry.h"
 #include "usb/usbh/hid/devices/vendors/sony/sony_ds4.h"
 
-// #define LANGUAGE_ID 0x0409
+#define LANGUAGE_ID 0x0409
 #define MAX_REPORTS 5
+#define PRODUCT_NAME_LEN 32
 
 // Each HID instance can have multiple reports
 typedef struct TU_ATTR_PACKED
@@ -26,7 +28,7 @@ typedef struct TU_ATTR_PACKED
 {
   uint16_t vid, pid;
   instance_t instances[CFG_TUH_HID];
-  // uint16_t serial[20];
+  char product_name[PRODUCT_NAME_LEN];
 } device_t;
 
 static device_t devices[MAX_DEVICES] = { 0 };
@@ -36,6 +38,13 @@ static void process_generic_report(uint8_t dev_addr, uint8_t instance, uint8_t c
 
 void hid_init()
 {
+  // Init all device types to -1 so XInput devices (which bypass HID)
+  // don't accidentally match index 0 (CONTROLLER_DUALSHOCK3).
+  for (int d = 0; d < MAX_DEVICES; d++) {
+    for (int i = 0; i < CFG_TUH_HID; i++) {
+      devices[d].instances[i].type = -1;
+    }
+  }
   register_devices();
 }
 
@@ -202,14 +211,27 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
     printf("HID has %u reports \r\n", devices[dev_addr].instances[instance].report_count);
   }
 
-  // gets serial for discovering some devices
-  // uint16_t temp_buf[128];
-  // if (0 == tuh_descriptor_get_serial_string_sync(dev_addr, LANGUAGE_ID, temp_buf, sizeof(temp_buf)))
-  // {
-  //   for(int i=0; i<20; i++){
-  //     devices[dev_addr].serial[i] = temp_buf[i];
-  //   }
-  // }
+  // Fetch USB product string ONLY for unknown devices — used by the
+  // router as a fallback name. Vendor-driver controllers (Switch Pro,
+  // DualShock, etc.) don't need it and were regressed by this call:
+  // the sync GET_DESCRIPTOR control transfer can collide with an
+  // in-flight vendor handshake started by the driver's init() above
+  // (Switch Pro fails to initialise as a result).
+  if (dev_type == CONTROLLER_UNKNOWN) {
+    uint16_t desc_buf[64];
+    if (XFER_RESULT_SUCCESS == tuh_descriptor_get_product_string_sync(dev_addr, LANGUAGE_ID, desc_buf, sizeof(desc_buf))) {
+      // Convert UTF-16LE to ASCII (skip descriptor header: byte 0=bLength, byte 1=bDescriptorType)
+      uint8_t bLength = ((uint8_t*)desc_buf)[0];
+      int char_count = (bLength - 2) / 2;
+      if (char_count > PRODUCT_NAME_LEN - 1) char_count = PRODUCT_NAME_LEN - 1;
+      for (int i = 0; i < char_count; i++) {
+        uint16_t ch = desc_buf[i + 1];  // +1 to skip header word
+        devices[dev_addr].product_name[i] = (ch < 128) ? (char)ch : '?';
+      }
+      devices[dev_addr].product_name[char_count] = '\0';
+      printf("USB product: %s\n", devices[dev_addr].product_name);
+    }
+  }
 
   // request to receive report
   // tuh_hid_report_received_cb() will be invoked when report is available
@@ -282,11 +304,11 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     device_interfaces[dev_type]->process(dev_addr, instance, report, len);
   }
 
-  // continue to request to receive report
-  if ( !tuh_hid_receive_report(dev_addr, instance) )
-  {
-    printf("Error: cannot request to receive report\r\n");
-  }
+  // continue to request to receive report.
+  // Note: vendor drivers (e.g. switch_pro) may have already re-armed inside
+  // their process() above to avoid stalling between subcommand exchanges.
+  // In that case the claim here will fail — that's expected, not an error.
+  tuh_hid_receive_report(dev_addr, instance);
 }
 
 //--------------------------------------------------------------------+
@@ -371,4 +393,22 @@ int hid_get_ctrl_type(uint8_t dev_addr, uint8_t instance)
     return -1;
   }
   return devices[dev_addr].instances[instance].type;
+}
+
+// Get USB product string (fetched at mount time, or set by XInput)
+// Returns NULL if not available
+const char* hid_get_product_name(uint8_t dev_addr)
+{
+  if (dev_addr >= MAX_DEVICES) {
+    return NULL;
+  }
+  return devices[dev_addr].product_name[0] ? devices[dev_addr].product_name : NULL;
+}
+
+// Set product name for non-HID devices (XInput, etc.)
+void hid_set_product_name(uint8_t dev_addr, const char* name)
+{
+  if (dev_addr >= MAX_DEVICES || !name) return;
+  strncpy(devices[dev_addr].product_name, name, PRODUCT_NAME_LEN - 1);
+  devices[dev_addr].product_name[PRODUCT_NAME_LEN - 1] = '\0';
 }

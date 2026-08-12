@@ -1,12 +1,12 @@
-// hori_horipad.h
-#ifndef HORIPAD_HEADER_H
-#define HORIPAD_HEADER_H
+// dragonrise.h
+#ifndef DRAGONRISE_HEADER_H
+#define DRAGONRISE_HEADER_H
 
 #include "../../../hid_device.h"
 #include "../../../hid_utils.h"
 #include "tusb.h"
 
-extern DeviceInterface hori_horipad_interface;
+extern DeviceInterface dragonrise_interface;
 
 // DragonRise Generic Gamepad (SNES/NES/GC/etc)
 typedef struct TU_ATTR_PACKED

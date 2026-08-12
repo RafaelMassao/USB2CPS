@@ -5,7 +5,7 @@
 #include "core/input_event.h"
 #include "core/services/players/manager.h"
 #include "core/services/players/feedback.h"
-#include "pico/time.h"
+#include "platform/platform.h"
 #include "app_config.h"
 
 static uint16_t tpadLastPos;
@@ -31,7 +31,10 @@ const char* dpad_str[] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW", "none" };
 
 // check if device is Sony PlayStation 5 controllers
 bool is_sony_ds5(uint16_t vid, uint16_t pid) {
-  return ((vid == 0x054c && pid == 0x0ce6)); // Sony DualSense
+  return (
+    (vid == 0x054c && pid == 0x0ce6) // Sony DualSense
+    || (vid == 0x0e6f && pid == 0x0209) // Victrix Pro FS for PS5
+  );
 }
 
 // check if 2 reports are different enough
@@ -65,7 +68,7 @@ bool diff_report_ds5(sony_ds5_report_t const* rpt1, sony_ds5_report_t const* rpt
 void input_sony_ds5(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
   uint32_t buttons;
   // previous report used to compare for changes
-  static sony_ds5_report_t prev_report[5] = { 0 };
+  static sony_ds5_report_t prev_report[MAX_DEVICES] = { 0 };
 
   uint8_t const report_id = report[0];
   report++;
@@ -351,7 +354,7 @@ void task_sony_ds5(uint8_t dev_addr, uint8_t instance, device_output_config_t* c
   const uint32_t interval_ms = 20;
   static uint32_t start_ms = 0;
 
-  uint32_t current_time_ms = to_ms_since_boot(get_absolute_time());
+  uint32_t current_time_ms = platform_time_ms();
   if (current_time_ms - start_ms >= interval_ms) {
     start_ms = current_time_ms;
     output_sony_ds5(dev_addr, instance, config);

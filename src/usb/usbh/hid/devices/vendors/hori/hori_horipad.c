@@ -8,7 +8,27 @@
 //                (or Sega Genesis mini controllers)
 bool is_hori_horipad(uint16_t vid, uint16_t pid)
 {
-  return ((vid == 0x0f0d && pid == 0x00c1)); // Switch HORI HORIPAD
+  return (
+    (vid == 0x0f0d && pid == 0x00c1)    // Switch HORI HORIPAD
+    // HORI
+    || (vid == 0x0f0d && pid == 0x0011) // HORI Real Arcade Pro 3 (RAP 3 SA/SE)
+    || (vid == 0x0f0d && pid == 0x0010) // HORI Fighting Stick 3
+    || (vid == 0x0f0d && pid == 0x0026) // HORI Real Arcade Pro 3 Premium VLX
+    || (vid == 0x0f0d && pid == 0x0027) // HORI Fighting Stick V3
+    || (vid == 0x0f0d && pid == 0x008b) // HORI RAP V HAYABUSA Controller (PS3 Mode)
+    // Mad Catz
+    || (vid == 0x0738 && pid == 0x3180) // Mad Catz Fight Stick Alpha (PS3 Mode)
+    || (vid == 0x0738 && pid == 0x8818) // Mad Catz SFIV Tournament Edition Round 1 (PS3)
+    || (vid == 0x0738 && pid == 0x8838) // Mad Catz SFIV Tournament Edition Round 2 (PS3)
+    // Quanba
+    || (vid == 0x2c22 && pid == 0x2302) // Qanba Obsidian (PS3 Mode)
+    || (vid == 0x2c22 && pid == 0x2500) // Qanba Dragon (PS3 Mode)
+    // Other
+    || (vid == 0x146b && pid == 0x0904) // Nacon Daija Arcade Stick (PS3 Mode)
+    || (vid == 0x1292 && pid == 0x4e47) // Fire NEOGEOX Arcade Stick (PS3 HID Mode)
+    || (vid == 0x046d && pid == 0xc216) // Logitech F310 (DirectInput / PS3 Mode)
+    || (vid == 0x10c4 && pid == 0x82c0) // VIRTUA STICK High Grade (PS3)
+  );
 }
 
 // check if 2 reports are different enough
@@ -28,7 +48,7 @@ bool diff_report_horipad(hori_horipad_report_t const* rpt1, hori_horipad_report_
 void process_hori_horipad(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
   uint32_t buttons;
   // previous report used to compare for changes
-  static hori_horipad_report_t prev_report[5] = { 0 };
+  static hori_horipad_report_t prev_report[MAX_DEVICES] = { 0 };
 
   hori_horipad_report_t input_report;
   memcpy(&input_report, report, sizeof(input_report));

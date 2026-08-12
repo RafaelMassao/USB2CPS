@@ -1,11 +1,12 @@
 // sony_ds4.c
 #include "sony_ds4.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/router/router.h"
 #include "core/input_event.h"
 #include "core/services/players/manager.h"
 #include "core/services/players/feedback.h"
-#include "pico/time.h"
+#include "platform/platform.h"
 #include "app_config.h"
 #include <string.h>
 
@@ -111,6 +112,7 @@ bool is_sony_ds4(uint16_t vid, uint16_t pid) {
     || (vid == 0x20d6 && pid == 0x792a) // PowerA FUSION Wired FightPad (6-button layout)
     || (vid == 0x1f4f && pid == 0x1002) // ASW Guilty Gear xrd Controller (Collector's Edition)
     || (vid == 0x04d8 && pid == 0x1529) // Universal PCB Project (UPCB Open Source)
+    || (vid == 0x0e6f && pid == 0x020a) // Victrix Pro FS for PS4
   );
 }
 
@@ -139,7 +141,7 @@ void input_sony_ds4(uint8_t dev_addr, uint8_t instance, uint8_t const* report, u
 {
   uint32_t buttons;
   // previous report used to compare for changes
-  static sony_ds4_report_t prev_report[5] = { 0 };
+  static sony_ds4_report_t prev_report[MAX_DEVICES] = { 0 };
 
   uint8_t const report_id = report[0];
   report++;
@@ -250,12 +252,18 @@ void input_sony_ds4(uint8_t dev_addr, uint8_t instance, uint8_t const* report, u
       // keep analog within range [1-255]
       ensureAllNonZero(&analog_1x, &analog_1y, &analog_2x, &analog_2y);
 
-      // adds deadzone
-      uint8_t deadzone = 40;
-      if (analog_1x > (128-(deadzone/2)) && analog_1x < (128+(deadzone/2))) analog_1x = 128;
-      if (analog_1y > (128-(deadzone/2)) && analog_1y < (128+(deadzone/2))) analog_1y = 128;
-      if (analog_2x > (128-(deadzone/2)) && analog_2x < (128+(deadzone/2))) analog_2x = 128;
-      if (analog_2y > (128-(deadzone/2)) && analog_2y < (128+(deadzone/2))) analog_2y = 128;
+      // Radial dead zone: only snap to center if the stick is inside a
+      // circle of `dz_radius` around (128,128). The previous per-axis
+      // rectangular dead zone caused magnetic-snap-to-cardinals — a
+      // diagonal tilt got one axis zeroed while the other passed through,
+      // turning smooth motion into pure N/S/E/W. The DS4 itself filters
+      // residual analog noise, so this only needs to be a small circle.
+      const int dz_radius = 6;  // ~5% of half-range
+      const int dz_radius_sq = dz_radius * dz_radius;
+      int dx1 = (int)analog_1x - 128, dy1 = (int)analog_1y - 128;
+      if (dx1*dx1 + dy1*dy1 < dz_radius_sq) { analog_1x = 128; analog_1y = 128; }
+      int dx2 = (int)analog_2x - 128, dy2 = (int)analog_2y - 128;
+      if (dx2*dx2 + dy2*dy2 < dz_radius_sq) { analog_2x = 128; analog_2y = 128; }
 
       // add to accumulator and post to the state machine
       // if a scan from the host machine is ongoing, wait
@@ -385,7 +393,7 @@ void task_sony_ds4(uint8_t dev_addr, uint8_t instance, device_output_config_t* c
   const uint32_t interval_ms = 20;
   static uint32_t start_ms = 0;
 
-  uint32_t current_time_ms = to_ms_since_boot(get_absolute_time());
+  uint32_t current_time_ms = platform_time_ms();
   if (current_time_ms - start_ms >= interval_ms) {
     start_ms = current_time_ms;
     output_sony_ds4(dev_addr, instance, config);

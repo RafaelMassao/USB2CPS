@@ -25,6 +25,7 @@
 #include "devices/vendors/raphnet/raphnet_pce.h"
 #include "devices/vendors/microsoft/ms_sidewinder_dualstrike.h"
 #include "devices/vendors/microsoft/ms_sidewinder_commander.h"
+#include "devices/vendors/dragonrise/dragonrise.h"
 #include "devices/generic/sinput_host.h"
 // Include other devices here
 
@@ -49,6 +50,7 @@ void register_devices() {
     device_interfaces[CONTROLLER_RAPHNET_PCE] = &raphnet_pce_interface;
     device_interfaces[CONTROLLER_SIDEWINDER_DUALSTRIKE] = &ms_sidewinder_dualstrike_interface;
     device_interfaces[CONTROLLER_SIDEWINDER_COMMANDER] = &ms_sidewinder_commander_interface;
+    device_interfaces[CONTROLLER_DRAGONRISE] = &dragonrise_interface;
     device_interfaces[CONTROLLER_SINPUT] = &sinput_host_interface;
     device_interfaces[CONTROLLER_DINPUT] = &hid_gamepad_interface;
     device_interfaces[CONTROLLER_KEYBOARD] = &hid_keyboard_interface;
